@@ -6,9 +6,23 @@ from std_msgs.msg import Float32MultiArray
 from sensor_msgs.msg import JointState
 import time
 import numpy as np
-from scipy.interpolate import CubicSpline
+from scipy.interpolate import CubicSpline, interp1d
 from scipy.optimize import minimize
 
+
+def generate_sine(min_range=0, max_range=1, duration=10, control_freq=10, wave_freq=1, phase=0, noise=0.02):
+
+    dt = 1 / control_freq
+    t = np.arange(0, duration, dt)
+    y = np.sin(2 * np.pi * wave_freq * t + phase)
+    amplitude = (max_range - min_range) / 2
+    offset = (max_range + min_range) / 2
+    y = y * amplitude + offset
+    if noise > 0:
+        y += np.random.uniform(-noise, noise, size=y.shape)
+        y = np.clip(y, -1, 1)
+
+    return t, y
 
 class VelocityController(Node):
 
@@ -19,7 +33,9 @@ class VelocityController(Node):
 
         self.publisher_ = self.create_publisher(DeltaCan, '/deltacan', 10)
         self.jointstate_subscriber = self.create_subscription(JointState, '/joint_states', self.joint_callback, 10)
-        self.goalstate_subscriber = self.create_subscription(Float32MultiArray, '/goal_state', self.goal_callback,10)
+        # self.goalstate_subscriber = self.create_subscription(Float32MultiArray, '/goal_state', self.goal_callback,10)
+
+        self.goalstate_idxer = self.create_timer(0.05, self.goal_callback)
 
         self.goalstate_timer = self.create_timer(0.05, self.goalpub_callback)
         self.goalstate_publisher = self.create_publisher(Float32MultiArray, '/goal_state_out',10)
@@ -45,7 +61,14 @@ class VelocityController(Node):
 
         signal = np.arange(-1.0, 1.0, 0.1)
         power =  np.array([self.bucket_cmd(x) for x in signal])
-        self.cs = CubicSpline(signal, power)
+        if not np.all(np.diff(power) >= 0):
+            self.cs = interp1d(power, signal, kind='linear', fill_value='extrapolate')
+        else:
+            self.cs = CubicSpline(power, signal)
+
+        self.signal_idx = 0
+        freq = 1/10
+        self.signal_t, self.signal_y = generate_sine(min_range=-1, max_range=1, duration=60, control_freq=20, wave_freq=freq, phase=0, noise=0.0)
 
     def bucket_cmd(self,x):
         if x < -0.9: return -0.7464773197463939
@@ -110,8 +133,14 @@ class VelocityController(Node):
 
             bucket_speed = self.curr_goal[2]
 
-            newbucket_speed = self.optimize_cmd(bucket_speed)
-            # newbucket_speed = bucket_speed
+            # newbucket_speed = self.optimize_cmd(bucket_speed)
+            # newbucket_speed = self.cs(bucket_speed)
+
+            if type(self.cs) == CubicSpline:
+                newbucket_speed = self.optimize_cmd(bucket_speed)
+            else:
+                newbucket_speed = self.cs(bucket_speed)
+
             newbucket_speed = max(min(newbucket_speed, 1.0), -1.0)
         else:
             newbucket_speed = self.prev_bucket_speed
@@ -142,9 +171,16 @@ class VelocityController(Node):
 
         
 
-    def goal_callback(self, msg:Float32MultiArray):
-        self.curr_goal = msg.data
-        pass
+    # def goal_callback(self, msg:Float32MultiArray):
+    #     self.curr_goal = msg.data
+    #     pass
+
+    def goal_callback(self):
+        if self.signal_idx >= len(self.signal_y):
+            self.signal_idx = 0
+        self.curr_goal = [0.0, 0.0, self.signal_y[self.signal_idx]]
+        self.signal_idx += 1
+
 
 def main(args=None):
     rclpy.init(args=args)

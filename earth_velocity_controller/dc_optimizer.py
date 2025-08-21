@@ -1,5 +1,6 @@
 import numpy as np
 from scipy.interpolate import CubicSpline, interp1d
+import matplotlib.pyplot as plt
 
 
 def bucket_cmd(x):
@@ -20,14 +21,16 @@ def bucket_cmd(x):
     else: return 1.1221103605940879
 
 signal = np.arange(-1.0, 1.0, 0.1)
-power =  np.array([bucket_cmd(x) for x in signal])
-cs = CubicSpline(signal, power)
+speed =  np.array([bucket_cmd(x) for x in signal])
+# cs = CubicSpline(signal, power)
+# check if speed is monotonic
+if not np.all(np.diff(speed) >= 0):
+    print("Speed is not monotonic, using interp1d instead of CubicSpline.")
+    cs = interp1d(speed, signal, kind='linear', fill_value='extrapolate')
+else:
+    cs = CubicSpline(signal, speed)
 
-print(cs(-0.47))
-
-import matplotlib.pyplot as plt
-plt.plot(signal, power, 'o', label='data points')
-plt.plot(signal, cs(signal), label='Cubic Spline')
+plt.plot(speed,signal, label='Bucket Speed')
 plt.legend()
 plt.show()
 
@@ -54,7 +57,7 @@ if __name__ == "__main__":
         if w < -1.0 or w > 1.0:
             print("Invalid")
             continue
-        x_opt = optimize_cmd(w)
+        x_opt = cs(w)
         print(f"Optimal command for velocity {w} is: {x_opt}")
 
 
