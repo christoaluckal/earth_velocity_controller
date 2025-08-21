@@ -42,7 +42,7 @@ class VelocityController(Node):
 
         self.curr_error = 0
         self.prev_error = 0
-        self.error_sum = 0
+        self.integral_error = 0
         self.dt = 1/20
 
     def goalpub_callback(self):
@@ -74,28 +74,28 @@ class VelocityController(Node):
         bucket_speed = 0.0
         dt = self.dt
 
-        self.error_sum += self.curr_error * dt
-        self.error_sum = max(min(self.error_sum, 2), -2)
+        self.integral_error += self.curr_error * dt
+        self.integral_error = max(min(self.integral_error, 2), -2)
 
         if abs(self.curr_error) > 0.05:
             P = self.bucket_gain[0] * self.curr_error
             # Derivative term
-            D = -self.bucket_gain[1] * (curr_bucket_vel - self.prev_bucket_vel) / dt
+            D = self.bucket_gain[1] * (self.curr_error - self.prev_error) / dt
 
-            I = self.bucket_gain[2] * self.error_sum
+            I = self.bucket_gain[2] * self.integral_error
 
             bucket_speed = P + I + D
             self.get_logger().info(f'Cur:{self.curr_error}|Sp:{bucket_speed}')
-            # if self.curr_error > 0:
-            #     if bucket_speed > 1.0:
-            #         bucket_speed = 1.0
-            #     elif bucket_speed < 0.5:
-            #         bucket_speed = 0.5
-            # else:
-            #     if bucket_speed > -0.5:
-            #         bucket_speed = -0.5
-            #     elif bucket_speed < -1.0:
-            #         bucket_speed = -1.0
+            if self.curr_error > 0:
+                if bucket_speed > 1.0:
+                    bucket_speed = 1.0
+                elif bucket_speed < 0.5:
+                    bucket_speed = 0.5
+            else:
+                if bucket_speed > -0.5:
+                    bucket_speed = -0.5
+                elif bucket_speed < -1.0:
+                    bucket_speed = -1.0
         else:
             bucket_speed = self.prev_bucket_speed
 
