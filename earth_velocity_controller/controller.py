@@ -5,6 +5,10 @@ from deltacan.msg import DeltaCan
 from std_msgs.msg import Float32MultiArray
 from sensor_msgs.msg import JointState
 import time
+import numpy as np
+from scipy.interpolate import CubicSpline
+from scipy.optimize import minimize
+
 
 class VelocityController(Node):
 
@@ -25,17 +29,11 @@ class VelocityController(Node):
         self.arm_idx = 4
         self.bucket_idx = 5
 
-        self.boom_error = 0
-        self.arm_error = 0
-        self.bucket_error = 0
-
-        self.boom_sign = -1
-        self.arm_sign = 1
-        self.bucket_sign = 1
+        self.current_state = None
 
         self.boom_gain = 4
         self.arm_gain = 4
-        self.bucket_gain = [1.15, 0.01, 0]
+        self.bucket_gain = [2.5,0.005, 0]
 
         self.prev_bucket_speed = 0
         self.prev_bucket_vel = 0
@@ -45,12 +43,88 @@ class VelocityController(Node):
         self.integral_error = 0
         self.dt = 1/20
 
+        signal = np.arange(-1.0, 1.0, 0.1)
+        power =  np.array([self.bucket_cmd(x) for x in signal])
+        self.cs = CubicSpline(signal, power)
+
+    def bucket_cmd(self,x):
+        if x < -0.9: return -0.7464773197463939
+        elif x < -0.8: return -0.7556077862660108
+        elif x < -0.7: return -0.7475886335802124
+        elif x < -0.6: return -0.6943159340316355
+        elif x < -0.5: return -0.3478137666597351
+        elif x < -0.45: return -0.11074819014084174
+        elif x >= -0.45 and x <= 0.45: return x*0.005
+        elif x < 0.45: return -0.03170411937007261
+        elif x < 0.5: return 0.07074540207098638
+        elif x < 0.6: return 0.1531096691607231
+        elif x < 0.7: return 0.494843938147395
+        elif x < 0.8: return 0.9654822056154688
+        elif x < 0.9: return 1.1323096288265486
+        elif x < 1.0: return 1.124019310302267
+        else: return 1.1221103605940879
+
+
+    def objective(self,x,w):
+        error = (w-self.cs(x[0]))**2
+        return error
+
+    def optimize_cmd(self,w):
+        x_guesses = np.linspace(-1.0, 1.0, 20)
+        best_x = None
+        best_error = float('inf')
+        for x0 in x_guesses:
+            result = minimize(self.objective, [x0], args=(w,), bounds=[(-1.0, 1.0)])
+            if result.fun < best_error:
+                best_error = result.fun
+                best_x = result.x[0]
+        return best_x
+
+
     def goalpub_callback(self):
         if self.curr_goal is not None:
             msg = Float32MultiArray()
             msg.data = self.curr_goal
             self.goalstate_publisher.publish(msg)
 
+        if self.current_state is None:
+            return
+
+        dc_msg = DeltaCan()
+        # boom_speed = 0.0
+        # arm_speed = 0.0
+        newbucket_speed = 0.0
+        dt = self.dt
+
+        self.curr_error = self.curr_goal[2] - self.current_state[2]
+
+        self.integral_error += self.curr_error * dt
+        self.integral_error = max(min(self.integral_error, 2), -2)
+
+        if abs(self.curr_error) > 0.05:
+            P = self.bucket_gain[0] * self.curr_error
+            # Derivative term
+            D = self.bucket_gain[1] * (self.curr_error - self.prev_error) / dt
+
+            I = self.bucket_gain[2] * self.integral_error
+
+            bucket_speed = self.curr_goal[2]
+
+            newbucket_speed = self.optimize_cmd(bucket_speed)
+            # newbucket_speed = bucket_speed
+            newbucket_speed = max(min(newbucket_speed, 1.0), -1.0)
+        else:
+            newbucket_speed = self.prev_bucket_speed
+
+        alpha = 1
+
+        dc_msg.mbucketcmd = float(newbucket_speed*alpha + (1-alpha)* self.prev_bucket_speed)
+        self.prev_bucket_speed = newbucket_speed
+        self.prev_error = self.curr_error
+        self.get_logger().info("*"*10)
+        self.publisher_.publish(dc_msg)
+
+        
 
     def joint_callback(self, msg: JointState):
         if self.curr_goal is None:
@@ -63,51 +137,10 @@ class VelocityController(Node):
         # desired_arm_vel = self.curr_goal[1]
         desired_bucket_vel = self.curr_goal[2]
 
-        # err_boom = desired_boom_vel - curr_boom_vel
-        # err_arm = desired_arm_vel - curr_arm_vel
-        self.curr_error = desired_bucket_vel - curr_bucket_vel
+        self.current_state = [None, None, curr_bucket_vel]
 
 
-        dc_msg = DeltaCan()
-        # boom_speed = 0.0
-        # arm_speed = 0.0
-        bucket_speed = 0.0
-        dt = self.dt
-
-        self.integral_error += self.curr_error * dt
-        self.integral_error = max(min(self.integral_error, 2), -2)
-
-        if abs(self.curr_error) > 0.05:
-            P = self.bucket_gain[0] * self.curr_error
-            # Derivative term
-            D = self.bucket_gain[1] * (self.curr_error - self.prev_error) / dt
-
-            I = self.bucket_gain[2] * self.integral_error
-
-            bucket_speed = P + I + D
-            self.get_logger().info(f'Cur:{self.curr_error}|Sp:{bucket_speed}')
-            if self.curr_error > 0:
-                if bucket_speed > 1.0:
-                    bucket_speed = 1.0
-                elif bucket_speed < 0.5:
-                    bucket_speed = 0.5
-            else:
-                if bucket_speed > -0.5:
-                    bucket_speed = -0.5
-                elif bucket_speed < -1.0:
-                    bucket_speed = -1.0
-        else:
-            bucket_speed = self.prev_bucket_speed
-
-        # dc_msg.mboomcmd = boom_speed
-        # dc_msg.marmcmd = arm_speed
-        dc_msg.mbucketcmd = bucket_speed
-        self.prev_error = self.curr_error
-        self.prev_bucket_speed = bucket_speed
-        self.prev_bucket_vel = curr_bucket_vel
-        self.get_logger().info("*"*10)
-        self.publisher_.publish(dc_msg)
-        time.sleep(0.05)
+        
 
     def goal_callback(self, msg:Float32MultiArray):
         self.curr_goal = msg.data
