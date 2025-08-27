@@ -1,0 +1,248 @@
+import rclpy
+from rclpy.node import Node
+from std_msgs.msg import Int16
+from deltacan.msg import DeltaCan
+from std_msgs.msg import Float32MultiArray
+from sensor_msgs.msg import JointState
+import time
+import numpy as np
+from scipy.interpolate import CubicSpline, interp1d
+from scipy.optimize import minimize
+import pandas as pd
+import matplotlib.pyplot as plt
+
+class VelocityController(Node):
+
+    def __init__(self):
+        super().__init__('velocity_tracker')
+
+        self.declare_parameter('csv_path', "")
+        self.csv_path = self.get_parameter('csv_path').value
+
+        self.t,self.bo,self.ar,self.bu = self.parse_csv()
+
+        plt.plot(self.t,self.bu)
+        plt.show()
+
+        avg_dt = np.around(np.mean(np.diff(self.t)),2)
+        self.get_logger().info(str(avg_dt))
+
+        self.declare_parameter('dt', 0.05)
+        self.dt = self.get_parameter('dt').value
+
+        self.publisher_ = self.create_publisher(DeltaCan, '/deltacan', 10)
+        self.jointstate_subscriber = self.create_subscription(JointState, '/joint_states', self.joint_callback, 10)
+        # self.goalstate_subscriber = self.create_subscription(Float32MultiArray, '/goal_state', self.goal_callback,10)
+
+        self.goalstate_idxer = self.create_timer(avg_dt, self.goal_callback)
+
+        self.goalstate_timer = self.create_timer(0.05, self.goalpub_callback)
+        self.goalstate_publisher = self.create_publisher(Float32MultiArray, '/goal_state_out',10)
+
+        self.curr_goal = None
+
+        self.current_state = None
+
+
+        self.prev_bucket_speed = 0
+        self.prev_arm_speed = 0
+        self.prev_boom_speed = 0
+
+        self.curr_error = 0
+
+        self.boom_idx = 2
+        self.arm_idx = 4
+        self.bucket_idx = 5
+
+        
+        signal = np.arange(-1.0, 1.0, 0.1)
+        bucket_speed =  np.array([self.bucket_cmd(x) for x in signal])
+        if not np.all(np.diff(bucket_speed) >= 0):
+            self.bucket_cs = interp1d(bucket_speed, signal, kind='linear', fill_value='extrapolate')
+        else:
+            self.bucket_cs = CubicSpline(bucket_speed, signal)
+        
+        arm_speed =  np.array([self.arm_cmd(x) for x in signal])
+        if not np.all(np.diff(arm_speed) >= 0):
+            self.arm_cs = interp1d(arm_speed, signal, kind='linear', fill_value='extrapolate')
+        else:
+            self.arm_cs = CubicSpline(arm_speed, signal)
+
+        boom_speed =  np.array([self.boom_cmd(x) for x in signal])
+        if not np.all(np.diff(boom_speed) >= 0):
+            self.boom_cs = interp1d(boom_speed, signal, kind='linear', fill_value='extrapolate')
+        else:
+            self.boom_cs = CubicSpline(boom_speed, signal)
+
+        self.signal_idx = 0
+
+    def parse_csv(self):
+        df = pd.read_csv(self.csv_path)
+        boom_vels = df['swing_to_boom_vel']
+        boom_vels += 0.4*np.sign(boom_vels[len(boom_vels)//2])
+        arm_vels = df['boom_to_arm_vel']
+        arm_vels += 0.4*np.sign(arm_vels[len(boom_vels)//2])
+        bucket_vels = df['arm_to_bucket_vel']
+        bucket_vels += 0.4*np.sign(bucket_vels[len(boom_vels)//2])
+        t = df['time_from_start_s']
+        return [t,boom_vels,arm_vels,bucket_vels]
+        
+    def bucket_cmd(self,x):
+        if x < -0.9: return -0.7464773197463939
+        elif x < -0.8: return -0.7556077862660108
+        elif x < -0.7: return -0.7475886335802124
+        elif x < -0.6: return -0.6943159340316355
+        elif x < -0.5: return -0.3478137666597351
+        elif x < -0.45: return -0.11074819014084174
+        elif x >= -0.45 and x <= 0.45: return x*0.005
+        elif x < 0.45: return -0.03170411937007261
+        elif x < 0.5: return 0.07074540207098638
+        elif x < 0.6: return 0.1531096691607231
+        elif x < 0.7: return 0.494843938147395
+        elif x < 0.8: return 0.9654822056154688
+        elif x < 0.9: return 1.1323096288265486
+        elif x < 1.0: return 1.124019310302267
+        else: return 1.1221103605940879
+
+    def arm_cmd(self, x):
+        if x < -0.9: return -0.7297529607089939
+        elif x < -0.8: return -0.7417820435603295
+        elif x < -0.7: return -0.7455697543943114
+        elif x < -0.6: return -0.6743000194405915
+        elif x < -0.5: return -0.2602819510725163
+        elif x < -0.45: return -0.07527410444846894
+        elif x >= -0.45 and x <= 0.45: return 0.0
+        elif x < 0.45: return -0.028214468531235375
+        elif x < 0.5: return 0.023708225612123934
+        elif x < 0.6: return 0.09856746947233368
+        elif x < 0.7: return 0.38919978426931034
+        elif x < 0.8: return 0.7416978037933635
+        elif x < 0.9: return 0.7555933051518472
+        elif x < 1.0: return 0.752780260055926
+        else: return 0.744536923787804
+
+    def boom_cmd(self, x):
+        if x < -0.9: return 0.4463869246347824
+        elif x < -0.8: return 0.4503544485398761
+        elif x < -0.7: return 0.43847760993112805
+        elif x < -0.6: return 0.3985477917802957
+        elif x < -0.5: return 0.22969102031072908
+        elif x < -0.45: return 0.10025171220496362
+        elif x >= -0.45 and x <= 0.45: return 0.0
+        elif x < 0.45: return 0.04753058433724343
+        elif x < 0.5: return -0.06316787902224205
+        elif x < 0.6: return -0.13641786070618744
+        elif x < 0.7: return -0.2727715499858695
+        elif x < 0.8: return -0.45252302846893266
+        elif x < 0.9: return -0.5158417589198473
+        elif x < 1.0: return -0.5363396786385148
+        else: return -0.5367303013977662
+
+
+    def objective(self,x,w):
+        error = (w-self.cs(x[0]))**2
+        return error
+
+    def optimize_cmd(self,w):
+        x_guesses = np.linspace(-1.0, 1.0, 20)
+        best_x = None
+        best_error = float('inf')
+        for x0 in x_guesses:
+            result = minimize(self.objective, [x0], args=(w,), bounds=[(-1.0, 1.0)])
+            if result.fun < best_error:
+                best_error = result.fun
+                best_x = result.x[0]
+        return best_x
+
+
+    def goalpub_callback(self):
+        if self.curr_goal is not None:
+            msg = Float32MultiArray()
+            msg.data = self.curr_goal.tolist()
+            self.goalstate_publisher.publish(msg)
+
+        if self.current_state is None:
+            return
+
+        dc_msg = DeltaCan()
+        newboom_speed = 0.0
+        newarm_speed = 0.0
+        newbucket_speed = 0.0
+
+        self.curr_error = self.curr_goal - self.current_state
+
+        if np.all(abs(self.curr_error) > 0.05):
+            bucket_speed = self.curr_goal[2]
+            if type(self.bucket_cs) == CubicSpline:
+                newbucket_speed = self.optimize_cmd(bucket_speed)
+            else:
+                newbucket_speed = self.bucket_cs(bucket_speed)
+
+            newbucket_speed = max(min(newbucket_speed, 1.0), -1.0)
+
+
+            arm_speed = self.curr_goal[1]
+            if type(self.arm_cs) == CubicSpline:
+                newarm_speed = self.optimize_cmd(arm_speed)
+            else:
+                newarm_speed = self.arm_cs(arm_speed)
+
+            newarm_speed = max(min(newarm_speed, 1.0), -1.0)
+
+
+            boom_sped = self.curr_goal[0]
+            if type(self.boom_cs) == CubicSpline:
+                newboom_speed = self.optimize_cmd(boom_sped)
+            else:
+                newboom_speed = self.boom_cs(boom_sped)
+
+            newboom_speed = max(min(newboom_speed, 1.0), -1.0)
+
+        else:
+            newbucket_speed = self.prev_bucket_speed
+            newarm_speed = self.prev_arm_speed
+            newboom_speed = self.prev_boom_speed
+
+        dc_msg.mbucketcmd = float(newbucket_speed)
+        dc_msg.marmcmd = float(newarm_speed)
+        dc_msg.mboomcmd = float(newboom_speed)
+        self.prev_bucket_speed = float(newbucket_speed)
+        self.prev_arm_speed = float(newarm_speed)
+        self.prev_boom_speed = float(newboom_speed)
+        self.get_logger().info("*"*10)
+        self.publisher_.publish(dc_msg)
+
+        
+
+    def joint_callback(self, msg: JointState):
+        if self.curr_goal is None:
+            return
+        curr_boom_vel = msg.velocity[self.boom_idx]
+        curr_arm_vel = msg.velocity[self.arm_idx]
+        curr_bucket_vel = msg.velocity[self.bucket_idx]
+
+        # desired_boom_vel = self.curr_goal[0]
+        # desired_arm_vel = self.curr_goal[1]
+        desired_bucket_vel = self.curr_goal[2]
+
+        self.current_state = np.array([curr_boom_vel, curr_arm_vel, curr_bucket_vel])
+
+
+
+    def goal_callback(self):
+        if self.signal_idx >= len(self.ar):
+            self.signal_idx = 0
+        self.curr_goal = np.array([self.bo[self.signal_idx], self.ar[self.signal_idx], self.bu[self.signal_idx]])
+        self.signal_idx += 1
+
+
+def main(args=None):
+    rclpy.init(args=args)
+    minimal_publisher = VelocityController()
+    rclpy.spin(minimal_publisher)
+    minimal_publisher.destroy_node()
+    rclpy.shutdown()
+
+
+if __name__ == '__main__':
+    main()

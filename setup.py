@@ -12,7 +12,8 @@ setup(
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
         ('share/' + package_name + '/launch', glob('launch/*.py')),
-        ('share/' + package_name + '/config', glob('config/*.yaml'))
+        ('share/' + package_name + '/config', glob('config/*.yaml')),
+        ('share/' + package_name + '/csv', glob('csv/*.csv'))
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -23,7 +24,8 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'velocity_controller = earth_velocity_controller.controller:main'
+            'velocity_controller = earth_velocity_controller.controller:main',
+            'velocity_tracker = earth_velocity_controller.tracker:main'
         ],
     },
 )

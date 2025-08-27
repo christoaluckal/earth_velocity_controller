@@ -1,0 +1,5 @@
+velocity_tracker:
+  ros__parameters:
+    # bool_value: True
+    csv_path: /home/moog-2/christo/ros2_ws/src/earth_velocity_controller/csv/new_plan_filtered.csv
+    dt: 0.1
