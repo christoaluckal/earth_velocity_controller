@@ -11,36 +11,33 @@ from scipy.optimize import minimize
 import pandas as pd
 import matplotlib.pyplot as plt
 
-def generate_sine(min_range=0, max_range=1, duration=10, control_freq=10, wave_freq=1, phase=0, noise=0.02):
-
-    dt = 1 / control_freq
-    t = np.arange(0, duration, dt)
-    y = np.sin(2 * np.pi * wave_freq * t + phase)
-    amplitude = (max_range - min_range) / 2
-    offset = (max_range + min_range) / 2
-    y = y * amplitude + offset
-    if noise > 0:
-        y += np.random.uniform(-noise, noise, size=y.shape)
-        y = np.clip(y, -1, 1)
-
-    return t, y
-
 class VelocityController(Node):
 
     def __init__(self):
         super().__init__('velocity_tracker')
 
-        self.declare_parameter('dt', 1/55)
+        self.declare_parameter('csv_path', "")
+        self.csv_path = self.get_parameter('csv_path').value
+
+        self.t,self.bo,self.ar,self.bu = self.parse_csv()
+
+        plt.plot(self.t,self.bu)
+        plt.show()
+
+        avg_dt = np.around(np.mean(np.diff(self.t)),2)
+        self.get_logger().info(str(avg_dt))
+
+        self.declare_parameter('dt', 0.05)
         self.dt = self.get_parameter('dt').value
 
-        self.publisher_ = self.create_publisher(DeltaCan, '/twist_deltacan', 10)
-        self.jointstate_subscriber = self.create_subscription(JointState, '/takeuchi_base_excavator_node/joint_state', self.joint_callback, 10)
+        self.publisher_ = self.create_publisher(DeltaCan, '/deltacan', 10)
+        self.jointstate_subscriber = self.create_subscription(JointState, '/joint_states', self.joint_callback, 10)
         # self.goalstate_subscriber = self.create_subscription(Float32MultiArray, '/goal_state', self.goal_callback,10)
 
-        self.goalstate_idxer = self.create_timer(self.dt, self.goal_callback)
+        self.goalstate_idxer = self.create_timer(avg_dt, self.goal_callback)
 
-        self.goalstate_timer = self.create_timer(self.dt, self.goalpub_callback)
-        self.goalstate_publisher = self.create_publisher(DeltaCan, '/goal_state_out',10)
+        self.goalstate_timer = self.create_timer(0.05, self.goalpub_callback)
+        self.goalstate_publisher = self.create_publisher(Float32MultiArray, '/goal_state_out',10)
 
         self.curr_goal = None
 
@@ -56,8 +53,6 @@ class VelocityController(Node):
         self.boom_idx = 2
         self.arm_idx = 4
         self.bucket_idx = 5
-
-        self.bucket_min = 0.3
 
         
         signal = np.arange(-1.0, 1.0, 0.1)
@@ -80,20 +75,6 @@ class VelocityController(Node):
             self.boom_cs = CubicSpline(boom_speed, signal)
 
         self.signal_idx = 0
-        freq = 1/10
-        duration = 10
-
-        _, self.signal_bucket = generate_sine(min_range=-1, max_range=1, duration=duration, control_freq=int(1/self.dt), wave_freq=freq, phase=np.pi, noise=0.0)
-        self.signal_t, self.signal_arm = generate_sine(min_range=-1, max_range=1, duration=duration, control_freq=int(1/self.dt), wave_freq=freq, phase=0, noise=0.0)
-        _, self.signal_boom = generate_sine(min_range=-1, max_range=1, duration=duration, control_freq=int(1/self.dt), wave_freq=freq, phase=np.pi/2, noise=0.0)
-
-        bucket_mask = abs(self.signal_bucket) > self.bucket_min
-        self.signal_bucket[bucket_mask == False] = 0.0
-
-
-        self.signal_bucket *= 1.0
-        self.signal_arm *= 0.0
-        self.signal_boom *= 0.0
 
     def parse_csv(self):
         df = pd.read_csv(self.csv_path)
@@ -176,12 +157,8 @@ class VelocityController(Node):
 
     def goalpub_callback(self):
         if self.curr_goal is not None:
-            msg = DeltaCan()
-            msg.header.stamp = self.get_clock().now().to_msg()
-            goals = self.curr_goal.tolist()
-            msg.mboomcmd = float(goals[0])
-            msg.marmcmd = float(goals[1])
-            msg.mbucketcmd = float(goals[2])
+            msg = Float32MultiArray()
+            msg.data = self.curr_goal.tolist()
             self.goalstate_publisher.publish(msg)
 
         if self.current_state is None:
@@ -244,20 +221,18 @@ class VelocityController(Node):
         curr_arm_vel = msg.velocity[self.arm_idx]
         curr_bucket_vel = msg.velocity[self.bucket_idx]
 
+        # desired_boom_vel = self.curr_goal[0]
+        # desired_arm_vel = self.curr_goal[1]
+        desired_bucket_vel = self.curr_goal[2]
 
         self.current_state = np.array([curr_boom_vel, curr_arm_vel, curr_bucket_vel])
 
 
 
     def goal_callback(self):
-        if self.signal_idx >= len(self.signal_arm):
-            self.get_logger().info("Completed all signals, resetting index to 0")
+        if self.signal_idx >= len(self.ar):
             self.signal_idx = 0
-        self.curr_goal = np.array([
-            self.signal_boom[self.signal_idx],
-            self.signal_arm[self.signal_idx],
-            self.signal_bucket[self.signal_idx]
-        ])
+        self.curr_goal = np.array([self.bo[self.signal_idx], self.ar[self.signal_idx], self.bu[self.signal_idx]])
         self.signal_idx += 1
 
 

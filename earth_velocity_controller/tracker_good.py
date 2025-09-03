@@ -33,14 +33,14 @@ class VelocityController(Node):
         self.declare_parameter('dt', 1/55)
         self.dt = self.get_parameter('dt').value
 
-        self.publisher_ = self.create_publisher(DeltaCan, '/twist_deltacan', 10)
-        self.jointstate_subscriber = self.create_subscription(JointState, '/takeuchi_base_excavator_node/joint_state', self.joint_callback, 10)
+        self.publisher_ = self.create_publisher(DeltaCan, '/deltacan', 10)
+        self.jointstate_subscriber = self.create_subscription(JointState, '/joint_states', self.joint_callback, 10)
         # self.goalstate_subscriber = self.create_subscription(Float32MultiArray, '/goal_state', self.goal_callback,10)
 
         self.goalstate_idxer = self.create_timer(self.dt, self.goal_callback)
 
         self.goalstate_timer = self.create_timer(self.dt, self.goalpub_callback)
-        self.goalstate_publisher = self.create_publisher(DeltaCan, '/goal_state_out',10)
+        self.goalstate_publisher = self.create_publisher(Float32MultiArray, '/goal_state_out',10)
 
         self.curr_goal = None
 
@@ -176,12 +176,8 @@ class VelocityController(Node):
 
     def goalpub_callback(self):
         if self.curr_goal is not None:
-            msg = DeltaCan()
-            msg.header.stamp = self.get_clock().now().to_msg()
-            goals = self.curr_goal.tolist()
-            msg.mboomcmd = float(goals[0])
-            msg.marmcmd = float(goals[1])
-            msg.mbucketcmd = float(goals[2])
+            msg = Float32MultiArray()
+            msg.data = self.curr_goal.tolist()
             self.goalstate_publisher.publish(msg)
 
         if self.current_state is None:
