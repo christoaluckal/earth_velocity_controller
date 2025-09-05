@@ -53,10 +53,6 @@ class VelocityController(Node):
 
         self.curr_error = 0
 
-        self.boom_idx = 1
-        self.arm_idx = 2
-        self.bucket_idx = 3
-
         self.bucket_min = 0.05
         self.arm_min = 0.05
         self.boom_min = 0.05
@@ -67,7 +63,6 @@ class VelocityController(Node):
         self.freqs = [1/20,1/15,1/10,1/5,1/2]
         self.amps = np.arange(0.4,1.1,0.1)
         # add 0.0 amplitude to make it possible to stop
-        self.amps = np.append(self.amps, 0.0)
         self.amps = np.append(self.amps, 0.0)
         self.amps = np.append(self.amps, 0.0)
         self.duration = 10
