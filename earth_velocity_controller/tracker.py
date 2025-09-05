@@ -34,7 +34,7 @@ class VelocityController(Node):
         self.dt = self.get_parameter('dt').value
 
         self.publisher_ = self.create_publisher(DeltaCan, '/twist_deltacan', 10)
-        self.jointstate_subscriber = self.create_subscription(JointState, '/takeuchi_base_excavator_node/joint_state', self.joint_callback, 10)
+        self.jointstate_subscriber = self.create_subscription(JointState, '/takeuchi_excavator_base_node/joint_state', self.joint_callback, 10)
         # self.goalstate_subscriber = self.create_subscription(Float32MultiArray, '/goal_state', self.goal_callback,10)
 
         self.goalstate_idxer = self.create_timer(self.dt, self.goal_callback)
@@ -53,11 +53,13 @@ class VelocityController(Node):
 
         self.curr_error = 0
 
-        self.boom_idx = 2
-        self.arm_idx = 4
-        self.bucket_idx = 5
+        self.boom_idx = 1
+        self.arm_idx = 2
+        self.bucket_idx = 3
 
-        self.bucket_min = 0.3
+        self.bucket_min = 0.05
+        self.arm_min = 0.05
+        self.boom_min = 0.05
 
         
         signal = np.arange(-1.0, 1.0, 0.1)

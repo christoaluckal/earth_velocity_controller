@@ -25,7 +25,8 @@ setup(
     entry_points={
         'console_scripts': [
             'velocity_controller = earth_velocity_controller.controller:main',
-            'velocity_tracker = earth_velocity_controller.tracker:main'
+            'velocity_tracker = earth_velocity_controller.tracker:main',
+            'velocity_signal = earth_velocity_controller.signal:main',
         ],
     },
 )
