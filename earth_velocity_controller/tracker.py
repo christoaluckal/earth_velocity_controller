@@ -372,7 +372,7 @@ class VelocityController(Node):
                     self.dt
                 )
 
-                newboom_speed = max(min(newboom_speed, 1.0), -1.0)
+                newboom_speed = max(min(newboom_speed + pid_correction, 1.0), -1.0)
 
         else:
             newbucket_speed = self.prev_bucket_speed
