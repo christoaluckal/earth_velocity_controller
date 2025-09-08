@@ -52,6 +52,13 @@ class VelocityController(Node):
         self.prev_boom_speed = 0
 
         self.curr_error = 0
+        self.curr_error_bucket = 0
+        self.curr_error_arm = 0
+        self.curr_error_boom = 0
+
+        self.prev_error_bucket = 0
+        self.prev_error_arm = 0
+        self.prev_error_boom = 0
 
         self.boom_idx = 1
         self.arm_idx = 2
@@ -97,6 +104,22 @@ class VelocityController(Node):
         self.signal_arm *= 0.0
         self.signal_boom *= 0.0
 
+        self.kp_bucket = 1.0
+        self.ki_bucket = 0.0
+        self.kd_bucket = 0.1
+
+        self.kp_arm = 1.0
+        self.ki_arm = 0.0
+        self.kd_arm = 0.1
+
+        self.kp_boom = 1.0
+        self.ki_boom = 0.0
+        self.kd_boom = 0.1
+
+        self.int_error_bucket = 0
+        self.int_error_arm = 0
+        self.int_error_boom = 0
+
     def parse_csv(self):
         df = pd.read_csv(self.csv_path)
         boom_vels = df['swing_to_boom_vel']
@@ -108,57 +131,156 @@ class VelocityController(Node):
         t = df['time_from_start_s']
         return [t,boom_vels,arm_vels,bucket_vels]
         
-    def bucket_cmd(self,x):
-        if x < -0.9: return -0.7464773197463939
-        elif x < -0.8: return -0.7556077862660108
-        elif x < -0.7: return -0.7475886335802124
-        elif x < -0.6: return -0.6943159340316355
-        elif x < -0.5: return -0.3478137666597351
-        elif x < -0.45: return -0.11074819014084174
-        elif x >= -0.45 and x <= 0.45: return x*0.005
-        elif x < 0.45: return -0.03170411937007261
-        elif x < 0.5: return 0.07074540207098638
-        elif x < 0.6: return 0.1531096691607231
-        elif x < 0.7: return 0.494843938147395
-        elif x < 0.8: return 0.9654822056154688
-        elif x < 0.9: return 1.1323096288265486
-        elif x < 1.0: return 1.124019310302267
-        else: return 1.1221103605940879
+    def bucket_cmd(self,excav_type='green',x=0.0):
+        if excav_type == 'white':
+            if x < -0.9: return -0.7464773197463939
+            elif x < -0.8: return -0.7556077862660108
+            elif x < -0.7: return -0.7475886335802124
+            elif x < -0.6: return -0.6943159340316355
+            elif x < -0.5: return -0.3478137666597351
+            elif x < -0.45: return -0.11074819014084174
+            elif x >= -0.45 and x <= 0.45: return x*0.005
+            elif x < 0.45: return -0.03170411937007261
+            elif x < 0.5: return 0.07074540207098638
+            elif x < 0.6: return 0.1531096691607231
+            elif x < 0.7: return 0.494843938147395
+            elif x < 0.8: return 0.9654822056154688
+            elif x < 0.9: return 1.1323096288265486
+            elif x < 1.0: return 1.124019310302267
+            else: return 1.1221103605940879
+        else:
+            if x < -0.9:
+                return -0.73289284
+            elif x < -0.8:
+                return -0.7272489
+            elif x < -0.7:
+                return -0.7269514514
+            elif x < -0.6:
+                return -0.638291842088111
+            elif x < -0.5:
+                return -0.328184874623581
+            elif x < -0.45:
+                return -0.104481405978331
+            elif -0.45 <= x <= 0.45:
+                return x * 0.005
+            elif x < 0.5:
+                return 0.058998878447
+            elif x < 0.6:
+                return 0.16739111
+            elif x < 0.7:
+                return 0.473202
+            elif x < 0.8:
+                return 0.97915879
+            elif x < 0.9:
+                return 1.020914
+            else:
+                return 1.036916476
 
-    def arm_cmd(self, x):
-        if x < -0.9: return -0.7297529607089939
-        elif x < -0.8: return -0.7417820435603295
-        elif x < -0.7: return -0.7455697543943114
-        elif x < -0.6: return -0.6743000194405915
-        elif x < -0.5: return -0.2602819510725163
-        elif x < -0.45: return -0.07527410444846894
-        elif x >= -0.45 and x <= 0.45: return 0.0
-        elif x < 0.45: return -0.028214468531235375
-        elif x < 0.5: return 0.023708225612123934
-        elif x < 0.6: return 0.09856746947233368
-        elif x < 0.7: return 0.38919978426931034
-        elif x < 0.8: return 0.7416978037933635
-        elif x < 0.9: return 0.7555933051518472
-        elif x < 1.0: return 0.752780260055926
-        else: return 0.744536923787804
 
-    def boom_cmd(self, x):
-        if x < -0.9: return 0.4463869246347824
-        elif x < -0.8: return 0.4503544485398761
-        elif x < -0.7: return 0.43847760993112805
-        elif x < -0.6: return 0.3985477917802957
-        elif x < -0.5: return 0.22969102031072908
-        elif x < -0.45: return 0.10025171220496362
-        elif x >= -0.45 and x <= 0.45: return 0.0
-        elif x < 0.45: return 0.04753058433724343
-        elif x < 0.5: return -0.06316787902224205
-        elif x < 0.6: return -0.13641786070618744
-        elif x < 0.7: return -0.2727715499858695
-        elif x < 0.8: return -0.45252302846893266
-        elif x < 0.9: return -0.5158417589198473
-        elif x < 1.0: return -0.5363396786385148
-        else: return -0.5367303013977662
+    def arm_cmd(self,excav_type='green',x=0.0):
+        if excav_type == 'white':
+            if x < -0.9: return -0.7297529607089939
+            elif x < -0.8: return -0.7417820435603295
+            elif x < -0.7: return -0.7455697543943114
+            elif x < -0.6: return -0.6743000194405915
+            elif x < -0.5: return -0.2602819510725163
+            elif x < -0.45: return -0.07527410444846894
+            elif x >= -0.45 and x <= 0.45: return 0.0
+            elif x < 0.45: return -0.028214468531235375
+            elif x < 0.5: return 0.023708225612123934
+            elif x < 0.6: return 0.09856746947233368
+            elif x < 0.7: return 0.38919978426931034
+            elif x < 0.8: return 0.7416978037933635
+            elif x < 0.9: return 0.7555933051518472
+            elif x < 1.0: return 0.752780260055926
+            else: return 0.744536923787804
+        else:
+            if x < -0.9:
+                return -0.7548945735
+            elif x < -0.8:
+                return -0.7438634824
+            elif x < -0.7:
+                return -0.7477281
+            elif x < -0.6:
+                return -0.704628205
+            elif x < -0.5:
+                return -0.3006559276
+            elif x < -0.45:
+                return -0.08843463
+            elif -0.45 <= x <= 0.45:
+                return x * 0.005
+            elif x < 0.5:
+                return -0.038891
+            elif x < 0.6:
+                return 0.120695427
+            elif x < 0.7:
+                return 0.39692405
+            elif x < 0.8:
+                return 0.68158669023
+            elif x < 0.9:
+                return 0.6900818
+            elif x < 1.0:
+                return 0.689677765
+            else:
+                return 0.68544316
 
+    def boom_cmd(self,excav_type='green',x=0.0):
+        if excav_type == 'white':
+            if x < -0.9: return 0.4463869246347824
+            elif x < -0.8: return 0.4503544485398761
+            elif x < -0.7: return 0.43847760993112805
+            elif x < -0.6: return 0.3985477917802957
+            elif x < -0.5: return 0.22969102031072908
+            elif x < -0.45: return 0.10025171220496362
+            elif x >= -0.45 and x <= 0.45: return 0.0
+            elif x < 0.45: return 0.04753058433724343
+            elif x < 0.5: return -0.06316787902224205
+            elif x < 0.6: return -0.13641786070618744
+            elif x < 0.7: return -0.2727715499858695
+            elif x < 0.8: return -0.45252302846893266
+            elif x < 0.9: return -0.5158417589198473
+            elif x < 1.0: return -0.5363396786385148
+            else: return -0.5367303013977662
+        else:
+            if x < -0.9:
+                return 0.42449316323
+            elif x < -0.8:
+                return 0.41108322
+            elif x < -0.7:
+                return 0.4267039109
+            elif x < -0.6:
+                return 0.38538409
+            elif x < -0.5:
+                return 0.233282959
+            elif x < -0.45:
+                return 0.08755922
+            elif -0.45 <= x <= 0.45:
+                return x * 0.005
+            elif x < 0.5:
+                return 0.038531499
+            elif x < 0.6:
+                return -0.09277926
+            elif x < 0.7:
+                return -0.1690113387
+            elif x < 0.8:
+                return -0.291168518879239
+            elif x < 0.9:
+                return -0.45902159549
+            elif x < 1.0:
+                return -0.5142994435
+            else:
+                return -0.517271958
+
+    def _pid_update(self, error, prev_error, int_error, kp, ki, kd, dt):
+        # integrate error
+        int_error += error * dt
+
+        # derivative term
+        deriv = (error - prev_error) / dt if dt > 0 else 0.0
+
+        # PID output
+        output = kp * error + ki * int_error + kd * deriv
+        return output, int_error
 
     def objective(self,x,w):
         error = (w-self.cs(x[0]))**2
@@ -196,32 +318,61 @@ class VelocityController(Node):
 
         self.curr_error = self.curr_goal - self.current_state
 
-        if np.all(abs(self.curr_error) > 0.05):
-            bucket_speed = self.curr_goal[2]
-            if type(self.bucket_cs) == CubicSpline:
-                newbucket_speed = self.optimize_cmd(bucket_speed)
+        if np.any(abs(self.curr_error) > 0.05):
+            if abs(self.curr_error[2]) > 0.05:
+                bucket_speed = self.curr_goal[2]
+                if type(self.bucket_cs) == CubicSpline:
+                    newbucket_speed = self.optimize_cmd(bucket_speed)
+                else:
+                    newbucket_speed = self.bucket_cs(bucket_speed)
+
+                pid_correction, self.int_error_bucket = self._pid_update(
+                    self.curr_error[2],
+                    self.prev_error_bucket,
+                    self.int_error_bucket,
+                    self.kp_bucket, self.ki_bucket, self.kd_bucket,
+                    self.dt
+                )
+                newbucket_speed = max(min(newbucket_speed + pid_correction, 1.0), -1.0)
+                
             else:
-                newbucket_speed = self.bucket_cs(bucket_speed)
+                newbucket_speed = self.prev_bucket_speed
 
-            newbucket_speed = max(min(newbucket_speed, 1.0), -1.0)
+            if abs(self.curr_error[1]) > 0.05:
+                arm_speed = self.curr_goal[1]
+                if type(self.arm_cs) == CubicSpline:
+                    newarm_speed = self.optimize_cmd(arm_speed)
+                else:
+                    newarm_speed = self.arm_cs(arm_speed)
 
+                pid_correction, self.int_error_arm = self._pid_update(
+                    self.curr_error[1],
+                    self.prev_error_arm,
+                    self.int_error_arm,
+                    self.kp_arm, self.ki_arm, self.kd_arm,
+                    self.dt
+                )
 
-            arm_speed = self.curr_goal[1]
-            if type(self.arm_cs) == CubicSpline:
-                newarm_speed = self.optimize_cmd(arm_speed)
+                newarm_speed = max(min(newarm_speed + pid_correction, 1.0), -1.0)
             else:
-                newarm_speed = self.arm_cs(arm_speed)
+                newarm_speed = self.prev_arm_speed
 
-            newarm_speed = max(min(newarm_speed, 1.0), -1.0)
+            if abs(self.curr_error[0]) > 0.05:
+                boom_sped = self.curr_goal[0]
+                if type(self.boom_cs) == CubicSpline:
+                    newboom_speed = self.optimize_cmd(boom_sped)
+                else:
+                    newboom_speed = self.boom_cs(boom_sped)
 
+                pid_correction, self.int_error_boom = self._pid_update(
+                    self.curr_error[0],
+                    self.prev_error_boom,
+                    self.int_error_boom,
+                    self.kp_boom, self.ki_boom, self.kd_boom,
+                    self.dt
+                )
 
-            boom_sped = self.curr_goal[0]
-            if type(self.boom_cs) == CubicSpline:
-                newboom_speed = self.optimize_cmd(boom_sped)
-            else:
-                newboom_speed = self.boom_cs(boom_sped)
-
-            newboom_speed = max(min(newboom_speed, 1.0), -1.0)
+                newboom_speed = max(min(newboom_speed, 1.0), -1.0)
 
         else:
             newbucket_speed = self.prev_bucket_speed
@@ -234,7 +385,11 @@ class VelocityController(Node):
         self.prev_bucket_speed = float(newbucket_speed)
         self.prev_arm_speed = float(newarm_speed)
         self.prev_boom_speed = float(newboom_speed)
-        self.get_logger().info("*"*10)
+
+        self.prev_error_bucket = self.curr_error[2]
+        self.prev_error_arm = self.curr_error[1]
+        self.prev_error_boom = self.curr_error[0]
+
         self.publisher_.publish(dc_msg)
 
         
