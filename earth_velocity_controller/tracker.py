@@ -11,6 +11,8 @@ from scipy.optimize import minimize
 import pandas as pd
 import matplotlib.pyplot as plt
 
+np.set_printoptions(precision=3, suppress=True)
+
 def generate_sine(min_range=0, max_range=1, duration=10, control_freq=10, wave_freq=1, phase=0, noise=0.02):
 
     dt = 1 / control_freq
@@ -35,7 +37,6 @@ class VelocityController(Node):
 
         self.publisher_ = self.create_publisher(DeltaCan, '/twist_deltacan', 10)
         self.jointstate_subscriber = self.create_subscription(JointState, '/takeuchi_excavator_base_node/joint_state', self.joint_callback, 10)
-        # self.goalstate_subscriber = self.create_subscription(Float32MultiArray, '/goal_state', self.goal_callback,10)
 
         self.goalstate_idxer = self.create_timer(self.dt, self.goal_callback)
 
@@ -64,35 +65,45 @@ class VelocityController(Node):
         self.arm_idx = 2
         self.bucket_idx = 3
 
+        # self.boom_idx = 2
+        # self.arm_idx = 4
+        # self.bucket_idx = 5
+
         self.bucket_min = 0.05
         self.arm_min = 0.05
         self.boom_min = 0.05
 
         
-        signal = np.arange(-1.0, 1.0, 0.1)
-        bucket_speed =  np.array([self.bucket_cmd(x) for x in signal])
-        if not np.all(np.diff(bucket_speed) >= 0):
-            self.bucket_cs = interp1d(bucket_speed, signal, kind='linear', fill_value='extrapolate')
-        else:
-            self.bucket_cs = CubicSpline(bucket_speed, signal)
+        signal = np.arange(-1.0, 1.01, 0.1)
+        # if not np.all(np.diff(bucket_speed) >= 0):
+        #     self.bucket_cs = interp1d(bucket_speed, signal, kind='linear', fill_value='extrapolate')
+        # else:
+        #     self.bucket_cs = CubicSpline(bucket_speed, signal)
         
-        arm_speed =  np.array([self.arm_cmd(x) for x in signal])
-        if not np.all(np.diff(arm_speed) >= 0):
-            self.arm_cs = interp1d(arm_speed, signal, kind='linear', fill_value='extrapolate')
-        else:
-            self.arm_cs = CubicSpline(arm_speed, signal)
+        # arm_speed =  np.array([self.arm_cmd(x) for x in signal])
+        # if not np.all(np.diff(arm_speed) >= 0):
+        #     self.arm_cs = interp1d(arm_speed, signal, kind='linear', fill_value='extrapolate')
+        # else:
+        #     self.arm_cs = CubicSpline(arm_speed, signal)
 
+        # boom_speed =  np.array([self.boom_cmd(x) for x in signal])
+        # if not np.all(np.diff(boom_speed) >= 0):
+        #     self.boom_cs = interp1d(boom_speed, signal, kind='linear', fill_value='extrapolate')
+        # else:
+        #     self.boom_cs = CubicSpline(boom_speed, signal)
+
+        bucket_speed =  np.array([self.bucket_cmd(x) for x in signal])
+        self.bucket_cs = interp1d(bucket_speed, signal, kind='linear', fill_value='extrapolate')
+        arm_speed =  np.array([self.arm_cmd(x) for x in signal])
+        self.arm_cs = interp1d(arm_speed, signal, kind='linear', fill_value='extrapolate')
         boom_speed =  np.array([self.boom_cmd(x) for x in signal])
-        if not np.all(np.diff(boom_speed) >= 0):
-            self.boom_cs = interp1d(boom_speed, signal, kind='linear', fill_value='extrapolate')
-        else:
-            self.boom_cs = CubicSpline(boom_speed, signal)
+        self.boom_cs = interp1d(boom_speed, signal, kind='linear', fill_value='extrapolate')
 
         self.signal_idx = 0
-        freq = 1/10
-        duration = 10
+        freq = 1/20
+        duration = 20
 
-        _, self.signal_bucket = generate_sine(min_range=-1, max_range=1, duration=duration, control_freq=int(1/self.dt), wave_freq=freq, phase=np.pi, noise=0.0)
+        _, self.signal_bucket = generate_sine(min_range=-0.4, max_range=0.4, duration=duration, control_freq=int(1/self.dt), wave_freq=freq, phase=np.pi, noise=0.0)
         self.signal_t, self.signal_arm = generate_sine(min_range=-1, max_range=1, duration=duration, control_freq=int(1/self.dt), wave_freq=freq, phase=0, noise=0.0)
         _, self.signal_boom = generate_sine(min_range=-1, max_range=1, duration=duration, control_freq=int(1/self.dt), wave_freq=freq, phase=np.pi/2, noise=0.0)
 
@@ -104,17 +115,17 @@ class VelocityController(Node):
         self.signal_arm *= 0.0
         self.signal_boom *= 0.0
 
-        self.kp_bucket = 1.0
+        self.kp_bucket = 0.3
         self.ki_bucket = 0.0
-        self.kd_bucket = 0.1
+        self.kd_bucket = 0.0
 
         self.kp_arm = 1.0
         self.ki_arm = 0.0
-        self.kd_arm = 0.1
+        self.kd_arm = 0.0
 
         self.kp_boom = 1.0
         self.ki_boom = 0.0
-        self.kd_boom = 0.1
+        self.kd_boom = 0.0
 
         self.int_error_bucket = 0
         self.int_error_arm = 0
@@ -131,7 +142,7 @@ class VelocityController(Node):
         t = df['time_from_start_s']
         return [t,boom_vels,arm_vels,bucket_vels]
         
-    def bucket_cmd(self,excav_type='green',x=0.0):
+    def bucket_cmd(self,x,excav_type='green'):
         if excav_type == 'white':
             if x < -0.9: return -0.7464773197463939
             elif x < -0.8: return -0.7556077862660108
@@ -177,7 +188,7 @@ class VelocityController(Node):
                 return 1.036916476
 
 
-    def arm_cmd(self,excav_type='green',x=0.0):
+    def arm_cmd(self,x,excav_type='green'):
         if excav_type == 'white':
             if x < -0.9: return -0.7297529607089939
             elif x < -0.8: return -0.7417820435603295
@@ -224,7 +235,7 @@ class VelocityController(Node):
             else:
                 return 0.68544316
 
-    def boom_cmd(self,excav_type='green',x=0.0):
+    def boom_cmd(self,x,excav_type='green'):
         if excav_type == 'white':
             if x < -0.9: return 0.4463869246347824
             elif x < -0.8: return 0.4503544485398761
@@ -324,7 +335,9 @@ class VelocityController(Node):
                 if type(self.bucket_cs) == CubicSpline:
                     newbucket_speed = self.optimize_cmd(bucket_speed)
                 else:
+                    # self.get_logger().info(f"Desired Bucket Speed: {bucket_speed}")
                     newbucket_speed = self.bucket_cs(bucket_speed)
+                    # self.get_logger().info(f"Mapped Bucket Cmd: {newbucket_speed}")
 
                 pid_correction, self.int_error_bucket = self._pid_update(
                     self.curr_error[2],
@@ -333,6 +346,7 @@ class VelocityController(Node):
                     self.kp_bucket, self.ki_bucket, self.kd_bucket,
                     self.dt
                 )
+                self.get_logger().info(f"OG: {newbucket_speed}, PID: {pid_correction}")
                 newbucket_speed = max(min(newbucket_speed + pid_correction, 1.0), -1.0)
                 
             else:
@@ -373,12 +387,13 @@ class VelocityController(Node):
                 )
 
                 newboom_speed = max(min(newboom_speed + pid_correction, 1.0), -1.0)
-
+        
         else:
             newbucket_speed = self.prev_bucket_speed
             newarm_speed = self.prev_arm_speed
             newboom_speed = self.prev_boom_speed
 
+        # self.get_logger().info(f"Curr: {self.current_state}, Goal: {self.curr_goal}, Error: {self.curr_error}, Cmds: {[newboom_speed, newarm_speed, newbucket_speed]}")   
         dc_msg.mbucketcmd = float(newbucket_speed)
         dc_msg.marmcmd = float(newarm_speed)
         dc_msg.mboomcmd = float(newboom_speed)
@@ -395,8 +410,7 @@ class VelocityController(Node):
         
 
     def joint_callback(self, msg: JointState):
-        if self.curr_goal is None:
-            return
+
         curr_boom_vel = msg.velocity[self.boom_idx]
         curr_arm_vel = msg.velocity[self.arm_idx]
         curr_bucket_vel = msg.velocity[self.bucket_idx]
